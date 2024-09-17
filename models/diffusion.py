@@ -1,10 +1,8 @@
 import torch
 import torch.nn.functional as F
-from torch.nn import Module, Parameter, ModuleList
+from torch.nn import Module, ModuleList
 import numpy as np
-
-from .common import *
-
+from models.common import ConcatSquashLinear
 
 class VarianceSchedule(Module):
 

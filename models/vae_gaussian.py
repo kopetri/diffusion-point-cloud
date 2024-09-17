@@ -1,10 +1,7 @@
-import torch
 from torch.nn import Module
-
-from .common import *
-from .encoders import *
-from .diffusion import *
-
+from encoders import PointNetEncoder
+from diffusion import DiffusionPoint, PointwiseNet, VarianceSchedule
+from common import reparameterize_gaussian, standard_normal_logprob, gaussian_entropy, truncated_normal_
 
 class GaussianVAE(Module):
 

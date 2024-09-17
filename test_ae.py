@@ -1,80 +1,55 @@
-import os
-import time
-import argparse
 import torch
-from tqdm.auto import tqdm
-
-from utils.dataset import *
-from utils.misc import *
-from utils.data import *
-from models.autoencoder import *
+import numpy as np
+from pathlib import Path
+from utils.dataset import ShapeNetCore
+from torch.utils.data.dataloader import DataLoader
+from pytorch_utils.scripts import Trainer
+from models.modules import AutoEncoderModule
 from evaluation import EMD_CD
 
+if __name__ == '__main__':
+    # Arguments
+    trainer = Trainer("Evaluation")
 
-# Arguments
-parser = argparse.ArgumentParser()
-parser.add_argument('--ckpt', type=str, default='./pretrained/AE_airplane.pt')
-parser.add_argument('--categories', type=str_list, default=['airplane'])
-parser.add_argument('--save_dir', type=str, default='./results')
-parser.add_argument('--device', type=str, default='cuda')
-# Datasets and loaders
-parser.add_argument('--dataset_path', type=str, default='./data/shapenet.hdf5')
-parser.add_argument('--batch_size', type=int, default=128)
-args = parser.parse_args()
+    trainer.add_argument('--ckpt', type=str, required=True)
+    trainer.add_argument('--categories', type=list, default=['airplane'])
+    trainer.add_argument('--save_dir', type=str, default='./results')
+    # Datasets and loaders
+    trainer.add_argument('--dataset_path', type=str, default='./data/shapenet.hdf5')
+    trainer.add_argument('--batch_size', type=int, default=128)
 
-# Logging
-save_dir = os.path.join(args.save_dir, 'AE_Ours_%s_%d' % ('_'.join(args.categories), int(time.time())) )
-if not os.path.exists(save_dir):
-    os.makedirs(save_dir)
-logger = get_logger('test', save_dir)
-for k, v in vars(args).items():
-    logger.info('[ARGS::%s] %s' % (k, repr(v)))
+    args = trainer.setup(train=False)
+    
+    save_dir = Path(args.ckpt).parents[1]/"predictions"
+    save_dir.mkdir(parents=True, exist_ok=True)
+    
+    torch.set_float32_matmul_precision('high')
 
-# Checkpoint
-ckpt = torch.load(args.ckpt)
-seed_all(ckpt['args'].seed)
+    # model
+    module = AutoEncoderModule.load_from_checkpoint(args.ckpt)
 
-# Datasets and loaders
-logger.info('Loading datasets...')
-test_dset = ShapeNetCore(
-    path=args.dataset_path,
-    cates=args.categories,
-    split='test',
-    scale_mode=ckpt['args'].scale_mode
-)
-test_loader = DataLoader(test_dset, batch_size=args.batch_size, num_workers=0)
+    test_dset = ShapeNetCore(
+        path=args.dataset_path,
+        cates=args.categories,
+        split='test',
+        scale_mode=module.opt.scale_mode
+    )
+    test_loader = DataLoader(test_dset, batch_size=args.batch_size, num_workers=4, persistent_workers=True)
 
-# Model
-logger.info('Loading model...')
-model = AutoEncoder(ckpt['args']).to(args.device)
-model.load_state_dict(ckpt['state_dict'])
+    result = trainer.predict(module, dataloaders=test_loader)
+    
+    all_ref = [r[0] for r in result]
+    all_recons = [r[1] for r in result]
+    
+    all_ref = torch.cat(all_ref, dim=0)
+    all_recons = torch.cat(all_recons, dim=0)
 
-all_ref = []
-all_recons = []
-for i, batch in enumerate(tqdm(test_loader)):
-    ref = batch['pointcloud'].to(args.device)
-    shift = batch['shift'].to(args.device)
-    scale = batch['scale'].to(args.device)
-    model.eval()
-    with torch.no_grad():
-        code = model.encode(ref)
-        recons = model.decode(code, ref.size(1), flexibility=ckpt['args'].flexibility).detach()
+    print(f'Saving point clouds... to {save_dir}')
+    np.save(save_dir/'ref.npy', all_ref.numpy())
+    np.save(save_dir/'out.npy', all_recons.numpy())
 
-    ref = ref * scale + shift
-    recons = recons * scale + shift
-
-    all_ref.append(ref.detach().cpu())
-    all_recons.append(recons.detach().cpu())
-
-all_ref = torch.cat(all_ref, dim=0)
-all_recons = torch.cat(all_recons, dim=0)
-
-logger.info('Saving point clouds...')
-np.save(os.path.join(save_dir, 'ref.npy'), all_ref.numpy())
-np.save(os.path.join(save_dir, 'out.npy'), all_recons.numpy())
-
-logger.info('Start computing metrics...')
-metrics = EMD_CD(all_recons.to(args.device), all_ref.to(args.device), batch_size=args.batch_size)
-cd, emd = metrics['MMD-CD'].item(), metrics['MMD-EMD'].item()
-logger.info('CD:  %.12f' % cd)
-logger.info('EMD: %.12f' % emd)
+    print('Start computing metrics...')
+    metrics = EMD_CD(all_recons.cuda(), all_ref.cuda(), batch_size=args.batch_size)
+    cd, emd = metrics['MMD-CD'].item(), metrics['MMD-EMD'].item()
+    print('CD:  %.12f' % cd)
+    print('EMD: %.12f' % emd)
