@@ -1,0 +1,2 @@
+pytorch_utils @ git+https://github.com/kopetri/PyTorch-Learning-Utils.git@main
+h5py
