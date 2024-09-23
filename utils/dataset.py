@@ -281,6 +281,8 @@ class SceneVerse(Dataset):
         return len(self.pointclouds)
 
     def __getitem__(self, idx):
+        data = {k:v.clone() if isinstance(v, torch.Tensor) else copy(v) for k, v in self.pointclouds[idx].items()}
+        
         pointcloud = data["pointcloud"]
         N = pointcloud.shape[0]
         
@@ -294,7 +296,7 @@ class SceneVerse(Dataset):
         
         assert pointcloud.shape == (self.num_points, 3)
         data["pointcloud"] = pointcloud
-        data = {k:v.clone() if isinstance(v, torch.Tensor) else copy(v) for k, v in self.pointclouds[idx].items()}
+        
         if self.transform is not None:
             data = self.transform(data)
         return data
