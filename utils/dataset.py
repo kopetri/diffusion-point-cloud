@@ -281,6 +281,19 @@ class SceneVerse(Dataset):
         return len(self.pointclouds)
 
     def __getitem__(self, idx):
+        pointcloud = data["pointcloud"]
+        N = pointcloud.shape[0]
+        
+        if self.split == "train":
+            indices = np.random.choice(N, self.num_points)
+        else:
+            indices = np.arange(0, N, N // self.num_points)
+            indices = indices[0:self.num_points]
+            
+        pointcloud = pointcloud[indices]
+        
+        assert pointcloud.shape == (self.num_points, 3)
+        data["pointcloud"] = pointcloud
         data = {k:v.clone() if isinstance(v, torch.Tensor) else copy(v) for k, v in self.pointclouds[idx].items()}
         if self.transform is not None:
             data = self.transform(data)
