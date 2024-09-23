@@ -13,7 +13,7 @@ if __name__ == '__main__':
 
     trainer.add_argument('--ckpt', type=str, required=True)
     trainer.add_argument('--categories', type=list, default=['airplane'])
-    trainer.add_argument('--save_dir', type=str, default='./results')
+
     # Datasets and loaders
     trainer.add_argument('--dataset_path', type=str, default='./data/shapenet.hdf5')
     trainer.add_argument('--batch_size', type=int, default=128)

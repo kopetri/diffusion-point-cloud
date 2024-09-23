@@ -1,10 +1,10 @@
 import torch
 from torch.nn import Module
 
-from encoders import PointNetEncoder
-from diffusion import DiffusionPoint, PointwiseNet, VarianceSchedule, 
-from common import reparameterize_gaussian, gaussian_entropy, standard_normal_logprob, truncated_normal_
-from flow import build_latent_flow
+from models.encoders import PointNetEncoder
+from models.diffusion import DiffusionPoint, PointwiseNet, VarianceSchedule
+from models.common import reparameterize_gaussian, gaussian_entropy, standard_normal_logprob, truncated_normal_
+from models.flow import build_latent_flow
 
 
 class FlowVAE(Module):

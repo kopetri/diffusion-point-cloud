@@ -4,7 +4,75 @@ from copy import copy
 import torch
 from torch.utils.data import Dataset
 import h5py
+import numpy as np
+from pathlib import Path
+from tqdm.auto import tqdm
+import time
 
+def make_split_files(path):
+    def __write_txt_(elements, output):
+        with open(output, "w") as txtfile:
+            for e in elements:
+                txtfile.write(e.relative_to(path).as_posix()+"\n")
+    path = Path(path)
+    print("Generate split files...")
+    
+    pths = list(path.glob("**/pcd_with_global_alignment/*.pth"))
+    assert len(pths) > 0, len(pths)
+    print(len(pths))
+    random.shuffle(pths)
+    N = len(pths)
+    N_train = int(0.8 * N)
+    N_valid = int(0.1 * N)
+    train_pths = pths[0:N_train]
+    valid_pths = pths[N_train:N_train+N_valid]
+    test_pths  = pths[N_train+N_valid:]
+    
+    train_pths = sorted(train_pths)
+    valid_pths = sorted(valid_pths)
+    test_pths = sorted(test_pths)
+    
+    __write_txt_(train_pths, path/"train.txt")
+    __write_txt_(valid_pths, path/"valid.txt")
+    __write_txt_(test_pths, path/"test.txt")
+
+def make_hdf5_files(path):
+    
+    print("Generate split files...")
+    
+    pths = list(Path(path).glob("**/pcd_with_global_alignment/*.pth"))
+    assert len(pths) > 0, len(pths)
+    print(len(pths))
+    random.shuffle(pths)
+    N = len(pths)
+    N_train = int(0.8 * N)
+    N_valid = int(0.1 * N)
+    train_pths = pths[0:N_train]
+    valid_pths = pths[N_train:N_train+N_valid]
+    test_pths  = pths[N_train+N_valid:]
+    
+    train_pths = sorted(train_pths)
+    valid_pths = sorted(valid_pths)
+    test_pths = sorted(test_pths)
+    
+    for split, pths_ in zip(["valid", "train", "test"], [valid_pths, train_pths, test_pths]):
+        hdf5_file = Path(path, f"{split}.hdf5")
+        with h5py.File(hdf5_file.as_posix(), 'w') as hdf:
+            for pth in tqdm(pths_, desc=f"Loading {split}"):
+                assert pth.exists(), pth
+                data = torch.load(pth)
+                group_name = pth.stem
+                try:
+                    pos, color = data[0:2]
+                    positions, colors = (pos.astype(np.float32), color.astype(np.uint8))
+                except:
+                    print(data)
+                    print(len(data))
+                    import sys; sys.exit()
+                group = hdf.create_group(group_name)
+                group.create_dataset('positions', data=positions, dtype='float32')
+                group.create_dataset('colors', data=colors, dtype='uint8')
+                
 
 synsetid_to_cate = {
     '02691156': 'airplane', '02773838': 'bag', '02801938': 'basket',
@@ -140,4 +208,96 @@ class ShapeNetCore(Dataset):
         if self.transform is not None:
             data = self.transform(data)
         return data
+    
+    
+class SceneVerse(Dataset):
 
+    GRAVITATIONAL_AXIS = 1
+    
+    def __init__(self, path, split, scale_mode, transform=None, num_points=2048):
+        super().__init__()
+        assert split in ('train', 'valid', 'test')
+        assert scale_mode is None or scale_mode in ('global_unit', 'shape_unit', 'shape_bbox', 'shape_half', 'shape_34')
+        self.path = Path(path)
+        self.split = split
+        self.scale_mode = scale_mode
+        self.transform = transform
+        self.num_points = num_points
+        self.stats = None
+        start = time.time()
+        self.pointclouds = []
+        self.load()
+        #self.pointclouds = self.data[self.split].keys()
+        #self.pointclouds = [k for k in self.data.keys()]
+        print(f"Found {self.__len__()} datapoints for {self.split} in {time.time() - start:0.2f} seconds")
+        
+    def load(self):
+
+        def _enumerate_pointclouds(f):
+            for group_name in tqdm(f.keys()):
+                group = f[group_name]
+                positions = group["positions"][:]
+                colors = group["colors"][:]
+                yield torch.from_numpy(positions).float(), torch.from_numpy(colors), group_name
+        
+        with h5py.File(self.path/f"{self.split}.hdf5", mode='r') as f:
+            for pc, colors, pc_id in _enumerate_pointclouds(f):
+
+                if self.scale_mode == 'global_unit':
+                    shift = pc.mean(dim=0).reshape(1, 3)
+                    scale = self.stats['std'].reshape(1, 1)
+                elif self.scale_mode == 'shape_unit':
+                    shift = pc.mean(dim=0).reshape(1, 3)
+                    scale = pc.flatten().std().reshape(1, 1)
+                elif self.scale_mode == 'shape_half':
+                    shift = pc.mean(dim=0).reshape(1, 3)
+                    scale = pc.flatten().std().reshape(1, 1) / (0.5)
+                elif self.scale_mode == 'shape_34':
+                    shift = pc.mean(dim=0).reshape(1, 3)
+                    scale = pc.flatten().std().reshape(1, 1) / (0.75)
+                elif self.scale_mode == 'shape_bbox':
+                    pc_max, _ = pc.max(dim=0, keepdim=True) # (1, 3)
+                    pc_min, _ = pc.min(dim=0, keepdim=True) # (1, 3)
+                    shift = ((pc_min + pc_max) / 2).view(1, 3)
+                    scale = (pc_max - pc_min).max().reshape(1, 1) / 2
+                else:
+                    shift = torch.zeros([1, 3])
+                    scale = torch.ones([1, 1])
+
+                pc = (pc - shift) / scale
+
+                self.pointclouds.append({
+                    'pointcloud': pc,
+                    'id': pc_id,
+                    'shift': shift,
+                    'scale': scale
+                })
+
+        # Deterministically shuffle the dataset
+        self.pointclouds.sort(key=lambda data: data['id'], reverse=False)
+        random.Random(2020).shuffle(self.pointclouds)
+    
+    def __len__(self):
+        return len(self.pointclouds)
+
+    def __getitem__(self, idx):
+        data = {k:v.clone() if isinstance(v, torch.Tensor) else copy(v) for k, v in self.pointclouds[idx].items()}
+        if self.transform is not None:
+            data = self.transform(data)
+        return data
+
+if __name__ == "__main__":
+    #make_split_files("data/sceneverse")
+    dataset = SceneVerse("data/sceneverse", "train", "shape_unit")
+    for dp in dataset:
+        print(dp)
+        break
+    dataset = SceneVerse("data/sceneverse", "valid", "shape_unit")
+    for dp in dataset:
+        print(dp)
+        break
+    dataset = SceneVerse("data/sceneverse", "test", "shape_unit")
+    for dp in dataset:
+        print(dp)
+        break
+    
