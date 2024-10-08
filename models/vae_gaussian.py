@@ -51,3 +51,39 @@ class GaussianVAE(Module):
             z = truncated_normal_(z, mean=0, std=1, trunc_std=truncate_std)
         samples = self.diffusion.sample(num_points, context=z, flexibility=flexibility)
         return samples
+
+
+if __name__ == '__main__':
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    # Model arguments
+    parser.add_argument('--latent_dim', type=int, default=256)
+    parser.add_argument('--num_steps', type=int, default=100)
+    parser.add_argument('--beta_1', type=float, default=1e-4)
+    parser.add_argument('--beta_T', type=float, default=0.02)
+    parser.add_argument('--sched_mode', type=str, default='linear')
+    parser.add_argument('--flexibility', type=float, default=0.0)
+    parser.add_argument('--truncate_std', type=float, default=2.0)
+    parser.add_argument('--latent_flow_depth', type=int, default=14)
+    parser.add_argument('--latent_flow_hidden_dim', type=int, default=256)
+    parser.add_argument('--num_samples', type=int, default=4)
+    parser.add_argument('--sample_num_points', type=int, default=2048)
+    parser.add_argument('--kl_weight', type=float, default=0.001)
+    parser.add_argument('--residual', type=eval, default=True, choices=[True, False])
+    parser.add_argument('--spectral_norm', type=eval, default=False, choices=[True, False])
+    
+    args = parser.parse_args()
+    network = GaussianVAE(args)
+
+
+    B = 4
+    N = 2028
+    pcd = torch.random.rand((B, N, 3))
+
+    network = network.cuda()
+    pcd = pcd.cuda()
+
+    loss = network(pcd)
+
+    print(loss)
