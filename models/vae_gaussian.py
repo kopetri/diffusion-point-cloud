@@ -10,7 +10,7 @@ class GaussianVAE(Module):
         self.args = args
         self.encoder = PointNetEncoder(args.latent_dim)
         self.diffusion = DiffusionPoint(
-            net = PointwiseNet(point_dim=3, context_dim=args.latent_dim, residual=args.residual),
+            net = PointwiseNet(point_dim=args.latent_dim, context_dim=args.latent_dim, residual=args.residual),
             var_sched = VarianceSchedule(
                 num_steps=args.num_steps,
                 beta_1=args.beta_1,
@@ -54,6 +54,7 @@ class GaussianVAE(Module):
 
 
 if __name__ == '__main__':
+    import torch
     import argparse
 
     parser = argparse.ArgumentParser()
@@ -78,12 +79,12 @@ if __name__ == '__main__':
 
 
     B = 4
-    N = 2028
-    pcd = torch.random.rand((B, N, 3))
+    N = 2048
+    pcd = torch.rand((B, N, 3))
 
     network = network.cuda()
     pcd = pcd.cuda()
 
-    loss = network(pcd)
+    loss = network.get_loss(pcd)
 
     print(loss)

@@ -78,12 +78,12 @@ class PointwiseNet(Module):
 
         # Pointwise fully connected layers
         self.layers = ModuleList([
-            ConcatSquashLinear(point_dim, 128, context_dim + point_dim),
-            ConcatSquashLinear(128, 256, context_dim + point_dim),
-            ConcatSquashLinear(256, 512, context_dim + point_dim),
-            ConcatSquashLinear(512, 256, context_dim + point_dim),
-            ConcatSquashLinear(256, 128, context_dim + point_dim),
-            ConcatSquashLinear(128, 3, context_dim + point_dim)
+            ConcatSquashLinear(point_dim, 128, context_dim + 3),
+            ConcatSquashLinear(128, 256, context_dim + 3),
+            ConcatSquashLinear(256, 512, context_dim + 3),
+            ConcatSquashLinear(512, 256, context_dim + 3),
+            ConcatSquashLinear(256, 128, context_dim + 3),
+            ConcatSquashLinear(128, 3, context_dim + 3)
         ])
 
         # Self-attention layer for point cloud
@@ -119,7 +119,7 @@ class PointwiseNet(Module):
             point_embeddings, _ = self.cross_attention(point_embeddings, text_embeddings, text_embeddings)  # Cross-attention with text
 
         # Pass through pointwise layers with context
-        out = x
+        out = point_embeddings
         for i, layer in enumerate(self.layers):
             out = layer(ctx=ctx_emb, x=out)
             if i < len(self.layers) - 1:
