@@ -46,6 +46,20 @@ class VarianceSchedule(Module):
         sigmas = self.sigmas_flex[t] * flexibility + self.sigmas_inflex[t] * (1 - flexibility)
         return sigmas
 
+class PointNetEncoder(Module):
+    def __init__(self, latent_dim):
+        super().__init__()
+        self.mlp = torch.nn.Sequential(
+            torch.nn.Conv1d(3, 64, 1),   # From (B, 3, N) -> (B, 64, N)
+            torch.nn.Conv1d(64, 128, 1),  # From (B, 64, N) -> (B, 128, N)
+            torch.nn.Conv1d(128, latent_dim, 1),  # Final embedding layer (B, 128, N) -> (B, latent_dim, N)
+        )
+
+    def forward(self, x):
+        x = x.transpose(1, 2)  # (B, N, 3) -> (B, 3, N)
+        embedding = self.mlp(x)  # (B, latent_dim, N)
+        return embedding.transpose(1, 2)  # Return (B, N, latent_dim)
+
 
 class PointwiseNet(Module):
     def __init__(self, point_dim, context_dim, residual, text_dim=None):
@@ -57,18 +71,19 @@ class PointwiseNet(Module):
             text_dim: Optional, dimensionality of the text embedding for cross-attention.
         """
         super().__init__()
+        self.encoder = PointNetEncoder(latent_dim=point_dim)
         self.act = F.leaky_relu
         self.residual = residual
         self.text_dim = text_dim if text_dim is not None else 0
 
         # Pointwise fully connected layers
         self.layers = ModuleList([
-            ConcatSquashLinear(3, 128, context_dim + 3),
-            ConcatSquashLinear(128, 256, context_dim + 3),
-            ConcatSquashLinear(256, 512, context_dim + 3),
-            ConcatSquashLinear(512, 256, context_dim + 3),
-            ConcatSquashLinear(256, 128, context_dim + 3),
-            ConcatSquashLinear(128, 3, context_dim + 3)
+            ConcatSquashLinear(point_dim, 128, context_dim + point_dim),
+            ConcatSquashLinear(128, 256, context_dim + point_dim),
+            ConcatSquashLinear(256, 512, context_dim + point_dim),
+            ConcatSquashLinear(512, 256, context_dim + point_dim),
+            ConcatSquashLinear(256, 128, context_dim + point_dim),
+            ConcatSquashLinear(128, 3, context_dim + point_dim)
         ])
 
         # Self-attention layer for point cloud
@@ -93,13 +108,15 @@ class PointwiseNet(Module):
         time_emb = torch.cat([beta, torch.sin(beta), torch.cos(beta)], dim=-1)  # (B, 1, 3)
         ctx_emb = torch.cat([time_emb, context], dim=-1)  # (B, 1, F+3)
 
+        point_embeddings = self.encoder(x)
+
         # Self-attention on point cloud embeddings
-        x, _ = self.self_attention(x, x, x)  # Apply self-attention to the point cloud
+        point_embeddings, _ = self.self_attention(point_embeddings, point_embeddings, point_embeddings)  # Apply self-attention to the point cloud
 
         # If text_embeddings is provided, apply cross-attention
         if text_embeddings is not None:
             text_embeddings = text_embeddings.transpose(0, 1)  # (text_len, B, text_dim) -> (B, text_len, text_dim)
-            x, _ = self.cross_attention(x, text_embeddings, text_embeddings)  # Cross-attention with text
+            point_embeddings, _ = self.cross_attention(point_embeddings, text_embeddings, text_embeddings)  # Cross-attention with text
 
         # Pass through pointwise layers with context
         out = x
