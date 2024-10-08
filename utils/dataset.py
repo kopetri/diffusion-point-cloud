@@ -238,6 +238,7 @@ class SceneVerse(Dataset):
                 group = f[group_name]
                 positions = group["positions"][:]
                 colors = group["colors"][:]
+                if len(positions) < self.num_points: continue
                 yield torch.from_numpy(positions).float(), torch.from_numpy(colors), group_name
         
         with h5py.File(self.path/f"{self.split}.hdf5", mode='r') as f:
