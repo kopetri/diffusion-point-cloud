@@ -95,10 +95,11 @@ class VAEModule(LightningModule):
     
     def validation_step(self, batch, batch_idx):
         num_samples = 4
-        _, sample_pcd = self.predict_step(batch, batch_idx, num_samples=num_samples)
-        sample_pcd = sample_pcd.cpu().numpy()
-        for i, pcd in enumerate(sample_pcd):
-            self.logger.experiment.log({f"sample_{i}": wandb.Object3D(pcd)})
+        if batch_idx == 0:
+            _, sample_pcd = self.predict_step(batch, batch_idx, num_samples=num_samples)
+            sample_pcd = sample_pcd.cpu().numpy()
+            for i, pcd in enumerate(sample_pcd):
+                self.logger.experiment.log({f"sample_{i}": wandb.Object3D(pcd)})
         return super().validation_step(batch, batch_idx)
         
     def forward(self, batch, batch_idx, split):
