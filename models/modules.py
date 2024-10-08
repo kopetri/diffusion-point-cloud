@@ -5,7 +5,7 @@ from models.flow import spectral_norm_power_iteration
 from models.autoencoder import AutoEncoder
 from models.vae_gaussian import GaussianVAE
 from models.vae_flow import FlowVAE
-from evaluation import EMD_CD
+#from evaluation import EMD_CD
 import wandb
 
 class AutoEncoderModule(LightningModule):
