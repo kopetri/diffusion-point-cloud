@@ -91,7 +91,7 @@ class VAEModule(LightningModule):
     def predict_step(self, batch, batch_idx, num_samples=None):
         ref = batch['pointcloud']
         if self.opt.use_text_condition:
-            text_emb = self.text_encoder.encode_text(batch['caption'])
+            text_emb = self.text_encoder.encode_text(batch['caption']).unsqueeze(1)
             # normalize embeddings?
             # text_embeddings /= text_embeddings.norm(dim=-1, keepdim=True)
         else:
@@ -118,7 +118,7 @@ class VAEModule(LightningModule):
         B = x.shape[0]
         if self.opt.use_text_condition:
             text_tokens = batch['caption']
-            text_embeddings = self.text_encoder.encode_text(text_tokens)
+            text_embeddings = self.text_encoder.encode_text(text_tokens).unsqueeze(1)
             # normalize embeddings?
             # text_embeddings /= text_embeddings.norm(dim=-1, keepdim=True)
         else:

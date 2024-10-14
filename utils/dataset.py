@@ -321,7 +321,7 @@ class SceneVerse(Dataset):
             data = self.transform(data)
         
         if self.tokenizer:
-            data["caption"] = self.tokenizer(caption)
+            data["caption"] = self.tokenizer(caption).squeeze()
         return data
 
 if __name__ == "__main__":
