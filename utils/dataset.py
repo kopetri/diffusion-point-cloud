@@ -214,7 +214,7 @@ class SceneVerse(Dataset):
 
     GRAVITATIONAL_AXIS = 1
     
-    def __init__(self, path, split, scale_mode, transform=None, num_points=2048):
+    def __init__(self, path, split, scale_mode, tokenizer=None, transform=None, num_points=2048):
         super().__init__()
         assert split in ('train', 'valid', 'test')
         assert scale_mode is None or scale_mode in ('global_unit', 'shape_unit', 'shape_bbox', 'shape_half', 'shape_34')
@@ -223,6 +223,7 @@ class SceneVerse(Dataset):
         self.scale_mode = scale_mode
         self.transform = transform
         self.num_points = num_points
+        self.tokenizer = tokenizer
         self.stats = None
         start = time.time()
         self.pointclouds = []
@@ -238,11 +239,12 @@ class SceneVerse(Dataset):
                 group = f[group_name]
                 positions = group["positions"][:]
                 colors = group["colors"][:]
+                captions = group["captions"][:]
                 if len(positions) < self.num_points: continue
-                yield torch.from_numpy(positions).float(), torch.from_numpy(colors), group_name
+                yield torch.from_numpy(positions).float(), torch.from_numpy(colors), captions, group_name
         
         with h5py.File(self.path/f"{self.split}.hdf5", mode='r') as f:
-            for pc, colors, pc_id in _enumerate_pointclouds(f):
+            for pc, colors, caption, pc_id in _enumerate_pointclouds(f):
 
                 if self.scale_mode == 'global_unit':
                     shift = pc.mean(dim=0).reshape(1, 3)
@@ -269,6 +271,8 @@ class SceneVerse(Dataset):
 
                 self.pointclouds.append({
                     'pointcloud': pc,
+                    'color': colors,
+                    'caption': caption,
                     'id': pc_id,
                     'shift': shift,
                     'scale': scale
@@ -285,21 +289,28 @@ class SceneVerse(Dataset):
         data = {k:v.clone() if isinstance(v, torch.Tensor) else copy(v) for k, v in self.pointclouds[idx].items()}
         
         pointcloud = data["pointcloud"]
+        caption = data["caption"]
         N = pointcloud.shape[0]
         
         if self.split == "train":
             indices = np.random.choice(N, self.num_points)
+            caption_idx = np.random.randint(0, len(caption))
         else:
             indices = np.arange(0, N, N // self.num_points)
             indices = indices[0:self.num_points]
+            caption_idx = 0
             
         pointcloud = pointcloud[indices]
+        caption = caption[caption_idx]
         
         assert pointcloud.shape == (self.num_points, 3)
         data["pointcloud"] = pointcloud
         
         if self.transform is not None:
             data = self.transform(data)
+        
+        if self.tokenizer:
+            data["caption"] = self.tokenizer(caption)
         return data
 
 if __name__ == "__main__":

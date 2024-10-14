@@ -4,6 +4,7 @@ from torch.utils.data.dataloader import DataLoader
 from models.modules import VAEModule
 from pytorch_utils.scripts import Trainer
 from models.flow import add_spectral_norm
+import open_clip
 
 if __name__ == '__main__':
     # Arguments
@@ -24,6 +25,7 @@ if __name__ == '__main__':
     trainer.add_argument('--kl_weight', type=float, default=0.001)
     trainer.add_argument('--residual', type=eval, default=True, choices=[True, False])
     trainer.add_argument('--spectral_norm', type=eval, default=False, choices=[True, False])
+    trainer.add_argument('--use_text_condition', action="store_true")
 
     # Datasets and loaders
     trainer.add_argument('--dataset_path', type=str, default='./data/shapenet.hdf5')
@@ -43,6 +45,12 @@ if __name__ == '__main__':
     args = trainer.setup(train=True, check_val_every_n_epoch=50, gradient_clip_val=10, gradient_clip_algorithm="norm")
 
     torch.set_float32_matmul_precision('high')
+
+    # text tokenization
+    if args.use_text_condition:
+        tokenizer = open_clip.get_tokenizer("laion2b_s32b_b79k")
+    else:
+        tokenizer = None
 
     # Datasets and loaders
     
@@ -64,13 +72,15 @@ if __name__ == '__main__':
             path=args.dataset_path,
             split='train',
             scale_mode=args.scale_mode,
-            num_points=args.sample_num_points
+            num_points=args.sample_num_points,
+            tokenizer=tokenizer
         )
         val_dset = SceneVerse(
             path=args.dataset_path,
             split='valid',
             scale_mode=args.scale_mode,
-            num_points=args.sample_num_points
+            num_points=args.sample_num_points,
+            tokenizer=tokenizer
         )
     else:
         raise ValueError(args.dataset)

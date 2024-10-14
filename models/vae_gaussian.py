@@ -8,6 +8,8 @@ class GaussianVAE(Module):
     def __init__(self, args):
         super().__init__()
         self.args = args
+        if args.use_text_condition:
+            self.text_encoder = 
         self.encoder = PointNetEncoder(args.latent_dim)
         self.diffusion = DiffusionPoint(
             net = PointwiseNet(point_dim=args.latent_dim, context_dim=args.latent_dim, residual=args.residual),
@@ -19,7 +21,7 @@ class GaussianVAE(Module):
             )
         )
         
-    def get_loss(self, x, writer=None, it=None, kl_weight=1.0):
+    def get_loss(self, x, writer=None, it=None, kl_weight=1.0, text_embeddings=None):
         """
         Args:
             x:  Input point clouds, (B, N, d).
@@ -31,7 +33,7 @@ class GaussianVAE(Module):
         entropy = gaussian_entropy(logvar=z_sigma)      # (B, )
         loss_prior = (- log_pz - entropy).mean()
 
-        loss_recons = self.diffusion.get_loss(x, z)
+        loss_recons = self.diffusion.get_loss(x, z, text_embeddings=text_embeddings)
 
         loss = kl_weight * loss_prior + loss_recons
 
@@ -42,14 +44,14 @@ class GaussianVAE(Module):
 
         return loss
 
-    def sample(self, z, num_points, flexibility, truncate_std=None):
+    def sample(self, z, num_points, flexibility, truncate_std=None, text_embeddings=None):
         """
         Args:
             z:  Input latent, normal random samples with mean=0 std=1, (B, F)
         """
         if truncate_std is not None:
             z = truncated_normal_(z, mean=0, std=1, trunc_std=truncate_std)
-        samples = self.diffusion.sample(num_points, context=z, flexibility=flexibility)
+        samples = self.diffusion.sample(num_points, context=z, flexibility=flexibility, text_embeddings=text_embeddings)
         return samples
 
 

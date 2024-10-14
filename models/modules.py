@@ -5,7 +5,7 @@ from models.flow import spectral_norm_power_iteration
 from models.autoencoder import AutoEncoder
 from models.vae_gaussian import GaussianVAE
 from models.vae_flow import FlowVAE
-#from evaluation import EMD_CD
+import open_clip
 import wandb
 
 class AutoEncoderModule(LightningModule):
@@ -83,13 +83,23 @@ class VAEModule(LightningModule):
         else:
             raise ValueError(self.opt.model)
         self.sample_step = 0
+        if self.opt.use_text_condition:
+            self.text_encoder, _, _ = open_clip.create_model_and_transforms("ViT-H-14", pretrained="laion2b_s32b_b79k")
+            for param in self.text_encoder.parameters():
+                param.requires_grad = False
         
     def predict_step(self, batch, batch_idx, num_samples=None):
         ref = batch['pointcloud']
+        if self.opt.use_text_condition:
+            text_emb = self.text_encoder.encode_text(batch['caption'])
+            # normalize embeddings?
+            # text_embeddings /= text_embeddings.norm(dim=-1, keepdim=True)
+        else:
+            text_emb = None
         if num_samples is None:
             num_samples = ref.shape[0]
         z = torch.randn([num_samples, self.opt.latent_dim]).to(ref)
-        x = self.model.sample(z, self.opt.sample_num_points, flexibility=self.opt.flexibility)
+        x = self.model.sample(z, self.opt.sample_num_points, flexibility=self.opt.flexibility, text_embeddings=text_emb)
         
         return ref, x
     
@@ -106,7 +116,14 @@ class VAEModule(LightningModule):
         spectral_norm_power_iteration(self.model, n_power_iterations=1)
         x = batch['pointcloud']
         B = x.shape[0]
-        loss = self.model.get_loss(x, kl_weight=self.opt.kl_weight)
+        if self.opt.use_text_condition:
+            text_tokens = batch['caption']
+            text_embeddings = self.text_encoder.encode_text(text_tokens)
+            # normalize embeddings?
+            # text_embeddings /= text_embeddings.norm(dim=-1, keepdim=True)
+        else:
+            text_embeddings = None
+        loss = self.model.get_loss(x, kl_weight=self.opt.kl_weight, text_embeddings=text_embeddings)
         self.log_value('loss', loss, split, B)
         return loss
     
