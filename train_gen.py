@@ -11,7 +11,7 @@ if __name__ == '__main__':
     trainer = Trainer("Point Diffusion")
     # Model arguments
     trainer.add_argument('--model', type=str, default='flow', choices=['flow', 'gaussian'])
-    trainer.add_argument('--latent_dim', type=int, default=256)
+    trainer.add_argument('--latent_dim', type=int, default=1024)
     trainer.add_argument('--num_steps', type=int, default=100)
     trainer.add_argument('--beta_1', type=float, default=1e-4)
     trainer.add_argument('--beta_T', type=float, default=0.02)

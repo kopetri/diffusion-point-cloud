@@ -30,6 +30,13 @@ class PointNetEncoder(nn.Module):
         self.fc_bn1_v = nn.BatchNorm1d(256)
         self.fc_bn2_v = nn.BatchNorm1d(128)
 
+        # Mapping to [c], point_emb
+        self.fc1_e = nn.Linear(512, 256)
+        self.fc2_e = nn.Linear(256, 128)
+        self.fc3_e = nn.Linear(128, zdim)
+        self.fc_bn1_e = nn.BatchNorm1d(256)
+        self.fc_bn2_e = nn.BatchNorm1d(128)
+
     def forward(self, x):
         x = x.transpose(1, 2)
         x = F.relu(self.bn1(self.conv1(x)))
@@ -45,7 +52,10 @@ class PointNetEncoder(nn.Module):
         v = F.relu(self.fc_bn1_v(self.fc1_v(x)))
         v = F.relu(self.fc_bn2_v(self.fc2_v(v)))
         v = self.fc3_v(v)
+        e = F.relu(self.fc_bn1_e(self.fc1_e(x)))
+        e = F.relu(self.fc_bn2_e(self.fc2_e(e)))
+        e = self.fc3_e(e)
 
         # Returns both mean and logvariance, just ignore the latter in deteministic cases.
-        return m, v
+        return m, v, e
 

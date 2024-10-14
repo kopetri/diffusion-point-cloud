@@ -10,9 +10,9 @@ class GaussianVAE(Module):
         super().__init__()
         self.args = args
         emb_dim = CLIP_TEXT_DIM[args.clip_version]
-        self.encoder = PointNetEncoder(zdim=emb_dim)
+        self.encoder = PointNetEncoder(args.latent_dim)
         self.diffusion = DiffusionPoint(
-            net = PointwiseNet(point_dim=args.latent_dim, context_dim=args.latent_dim, residual=args.residual, text_dim=emb_dim),
+            net = PointwiseNet(point_dim=args.latent_dim, context_dim=args.latent_dim, text_dim=emb_dim),
             var_sched = VarianceSchedule(
                 num_steps=args.num_steps,
                 beta_1=args.beta_1,
@@ -27,13 +27,13 @@ class GaussianVAE(Module):
             x:  Input point clouds, (B, N, d).
         """
         batch_size, _, _ = x.size()
-        z_mu, z_sigma = self.encoder(x)
+        z_mu, z_sigma, point_emb = self.encoder(x)
         z = reparameterize_gaussian(mean=z_mu, logvar=z_sigma)  # (B, F)
         log_pz = standard_normal_logprob(z).sum(dim=1)  # (B, ), Independence assumption
         entropy = gaussian_entropy(logvar=z_sigma)      # (B, )
         loss_prior = (- log_pz - entropy).mean()
 
-        loss_recons = self.diffusion.get_loss(x, z, text_embeddings=text_embeddings)
+        loss_recons = self.diffusion.get_loss(x, point_emb, z, text_embeddings=text_embeddings)
 
         loss = kl_weight * loss_prior + loss_recons
 
