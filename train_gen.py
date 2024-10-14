@@ -36,12 +36,11 @@ if __name__ == '__main__':
     # Optimizer and scheduler
     trainer.add_argument('--learning_rate', type=float, default=2e-3)
     trainer.add_argument('--weight_decay', type=float, default=0)
-    trainer.add_argument('--max_grad_norm', type=float, default=10)
     trainer.add_argument('--end_lr', type=float, default=1e-4)
-    trainer.add_argument('--sched_start_epoch', type=int, default=200*1000)
-    trainer.add_argument('--sched_end_epoch', type=int, default=400*1000)
+    trainer.add_argument('--sched_start_epoch', type=int, default=200)
+    trainer.add_argument('--sched_end_epoch', type=int, default=400)
 
-    args = trainer.setup(train=True, check_val_every_n_epoch=50, gradient_clip_val=0.5)
+    args = trainer.setup(train=True, check_val_every_n_epoch=50, gradient_clip_val=10, gradient_clip_algorithm="norm")
 
     torch.set_float32_matmul_precision('high')
 
