@@ -296,6 +296,7 @@ class SceneVerse(Dataset):
         data = {k:v.clone() if isinstance(v, torch.Tensor) else copy(v) for k, v in self.pointclouds[idx].items()}
         
         pointcloud = data["pointcloud"]
+        color     = data["color"]
         caption = data["caption"]
         N = pointcloud.shape[0]
         
@@ -308,11 +309,13 @@ class SceneVerse(Dataset):
             caption_idx = 0
             
         pointcloud = pointcloud[indices]
+        color = color[indices]
         caption = caption[caption_idx]
         caption = caption.decode('utf-8')
         
         assert pointcloud.shape == (self.num_points, 3)
         data["pointcloud"] = pointcloud
+        data["color"] = color
         
         if self.transform is not None:
             data = self.transform(data)
