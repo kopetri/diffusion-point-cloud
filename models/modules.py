@@ -87,6 +87,36 @@ class VAEModule(LightningModule):
             self.text_encoder, _, _ = open_clip.create_model_and_transforms(self.opt.clip_version, pretrained=self.opt.clip_pretrained)
             for param in self.text_encoder.parameters():
                 param.requires_grad = False
+
+    def get_text_hidden_states(self, text_tokens):
+        """
+        Obtain the last hidden states from the text encoder.
+
+        Args:
+            text_tokens: Tokenized text input tensor of shape [batch_size, seq_len].
+
+        Returns:
+            last_hidden_states: Tensor of shape [batch_size, seq_len, embed_dim].
+        """
+        # Get token embeddings
+        x = self.text_encoder.token_embedding(text_tokens)  # [batch_size, seq_len, embed_dim]
+
+        # Add positional embeddings
+        x = x + self.text_encoder.positional_embedding[:x.size(1), :]
+
+        # Permute for transformer [seq_len, batch_size, embed_dim]
+        x = x.permute(1, 0, 2)
+
+        # Prepare attention mask
+        attn_mask = self.text_encoder.build_attention_mask(x.shape[0]).to(x.device)
+
+        # Pass through transformer
+        last_hidden_states = self.text_encoder.transformer(x, attn_mask=attn_mask)
+
+        # Permute back to [batch_size, seq_len, embed_dim]
+        last_hidden_states = last_hidden_states.permute(1, 0, 2)
+
+        return last_hidden_states
         
     def predict_step(self, batch, batch_idx, num_samples=None):
         ref = batch['pointcloud']
@@ -94,6 +124,8 @@ class VAEModule(LightningModule):
             text_emb = self.text_encoder.encode_text(batch['caption']).unsqueeze(1)
             # normalize embeddings?
             # text_embeddings /= text_embeddings.norm(dim=-1, keepdim=True)
+            # use last hidden states?
+            # text_emb = self.get_text_hidden_states(batch['caption'])
         else:
             text_emb = None
         if num_samples is None:
@@ -121,6 +153,8 @@ class VAEModule(LightningModule):
             text_embeddings = self.text_encoder.encode_text(text_tokens).unsqueeze(1)
             # normalize embeddings?
             # text_embeddings /= text_embeddings.norm(dim=-1, keepdim=True)
+            # use last hidden states?
+            # text_emb = self.get_text_hidden_states(batch['caption'])
         else:
             text_embeddings = None
         loss = self.model.get_loss(x, kl_weight=self.opt.kl_weight, text_embeddings=text_embeddings)

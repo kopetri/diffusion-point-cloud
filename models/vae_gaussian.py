@@ -9,9 +9,10 @@ class GaussianVAE(Module):
     def __init__(self, args):
         super().__init__()
         self.args = args
-        self.encoder = PointNetEncoder(args.latent_dim)
+        emb_dim = CLIP_TEXT_DIM[args.clip_version]
+        self.encoder = PointNetEncoder(zdim=emb_dim)
         self.diffusion = DiffusionPoint(
-            net = PointwiseNet(point_dim=args.latent_dim, context_dim=args.latent_dim, residual=args.residual, text_dim=CLIP_TEXT_DIM[args.clip_version]),
+            net = PointwiseNet(point_dim=args.latent_dim, context_dim=args.latent_dim, residual=args.residual, text_dim=emb_dim),
             var_sched = VarianceSchedule(
                 num_steps=args.num_steps,
                 beta_1=args.beta_1,
