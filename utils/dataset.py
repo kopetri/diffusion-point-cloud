@@ -210,9 +210,11 @@ class ShapeNetCore(Dataset):
         return data
     
 def token_collide(batch):
-    tokens = batch['captions']
+    tokens = batch['caption']
     # Pad the text tokens to the same length
-    batch['captions'] = pad_sequence(tokens, batch_first=True, padding_value=0)
+    caption = pad_sequence(tokens, batch_first=True, padding_value=0)
+    batch = {key:torch.stack(value, dim=0) for key,value in batch.items() if not key == 'caption'}
+    batch['caption'] = caption
     return batch
     
 class SceneVerse(Dataset):
