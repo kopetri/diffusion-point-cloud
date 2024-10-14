@@ -8,60 +8,59 @@ import numpy as np
 from pathlib import Path
 from tqdm.auto import tqdm
 import time
+import json
 
-def make_split_files(path):
-    def __write_txt_(elements, output):
-        with open(output, "w") as txtfile:
-            for e in elements:
-                txtfile.write(e.relative_to(path).as_posix()+"\n")
+def get_captions(path):
     path = Path(path)
-    print("Generate split files...")
     
-    pths = list(path.glob("**/pcd_with_global_alignment/*.pth"))
-    assert len(pths) > 0, len(pths)
-    print(len(pths))
-    random.shuffle(pths)
-    N = len(pths)
-    N_train = int(0.8 * N)
-    N_valid = int(0.1 * N)
-    train_pths = pths[0:N_train]
-    valid_pths = pths[N_train:N_train+N_valid]
-    test_pths  = pths[N_train+N_valid:]
+    # parse scene_cap.json
+    print("Parsing scene_cap.json files")
+    scene_caps = list(path.glob("**/scene_cap.json"))
+    all_scenes = []
+    for scene_cap in scene_caps:
+        dataset_name = scene_cap.parents[-4].name
+        print(f"Found scene_cap for {dataset_name}")
+        with open(scene_cap, "r") as jsonfile:
+            data = json.load(jsonfile)
+            for scene_id, captions in data.items():
+                pth_file = scene_cap.parents[1]/"scan_data"/"pcd_with_global_alignment"/f"{scene_id}.pth"
+                if pth_file.exists():
+                    all_scenes.append((scene_id, captions['captions'], pth_file))
+                else:
+                    print(f"{pth_file} does not exist.")
+
+    print(f"Found captions for {len(all_scenes)} scenes")
+    return all_scenes
+        
     
-    train_pths = sorted(train_pths)
-    valid_pths = sorted(valid_pths)
-    test_pths = sorted(test_pths)
-    
-    __write_txt_(train_pths, path/"train.txt")
-    __write_txt_(valid_pths, path/"valid.txt")
-    __write_txt_(test_pths, path/"test.txt")
 
 def make_hdf5_files(path):
     
     print("Generate split files...")
     
-    pths = list(Path(path).glob("**/pcd_with_global_alignment/*.pth"))
-    assert len(pths) > 0, len(pths)
-    print(len(pths))
-    random.shuffle(pths)
-    N = len(pths)
+    captions = get_captions(path)
+    
+    
+    random.shuffle(captions)
+    N = len(captions)
     N_train = int(0.8 * N)
     N_valid = int(0.1 * N)
-    train_pths = pths[0:N_train]
-    valid_pths = pths[N_train:N_train+N_valid]
-    test_pths  = pths[N_train+N_valid:]
+    train_pths = captions[0:N_train]
+    valid_pths = captions[N_train:N_train+N_valid]
+    test_pths  = captions[N_train+N_valid:]
     
     train_pths = sorted(train_pths)
     valid_pths = sorted(valid_pths)
     test_pths = sorted(test_pths)
     
-    for split, pths_ in zip(["valid", "train", "test"], [valid_pths, train_pths, test_pths]):
+    for split, data in zip(["valid", "train", "test"], [valid_pths, train_pths, test_pths]):
         hdf5_file = Path(path, f"{split}.hdf5")
+        
         with h5py.File(hdf5_file.as_posix(), 'w') as hdf:
-            for pth in tqdm(pths_, desc=f"Loading {split}"):
+            for (scene_id, captions, pth) in tqdm(data, desc=f"Loading {split}"):
                 assert pth.exists(), pth
                 data = torch.load(pth)
-                group_name = pth.stem
+                group_name = scene_id
                 try:
                     pos, color = data[0:2]
                     positions, colors = (pos.astype(np.float32), color.astype(np.uint8))
@@ -72,7 +71,7 @@ def make_hdf5_files(path):
                 group = hdf.create_group(group_name)
                 group.create_dataset('positions', data=positions, dtype='float32')
                 group.create_dataset('colors', data=colors, dtype='uint8')
-                
+                group.create_dataset('captions', data=captions, shape=len(captions), dtype=h5py.string_dtype())              
 
 synsetid_to_cate = {
     '02691156': 'airplane', '02773838': 'bag', '02801938': 'basket',
@@ -314,7 +313,8 @@ class SceneVerse(Dataset):
         return data
 
 if __name__ == "__main__":
-    #make_split_files("data/sceneverse")
+    make_hdf5_files("data/sceneverse")
+    """
     dataset = SceneVerse("data/sceneverse", "train", "shape_unit")
     for dp in dataset:
         print(dp)
@@ -327,4 +327,4 @@ if __name__ == "__main__":
     for dp in dataset:
         print(dp)
         break
-    
+    """
