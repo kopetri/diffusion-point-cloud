@@ -9,6 +9,7 @@ from pathlib import Path
 from tqdm.auto import tqdm
 import time
 import json
+from torch.nn.utils.rnn import pad_sequence
 
 def get_captions(path):
     path = Path(path)
@@ -208,6 +209,11 @@ class ShapeNetCore(Dataset):
             data = self.transform(data)
         return data
     
+def token_collide(batch):
+    tokens = batch['captions']
+    # Pad the text tokens to the same length
+    batch['captions'] = pad_sequence(tokens, batch_first=True, padding_value=0)
+    return batch
     
 class SceneVerse(Dataset):
 

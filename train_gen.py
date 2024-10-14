@@ -1,4 +1,4 @@
-from utils.dataset import ShapeNetCore, SceneVerse
+from utils.dataset import ShapeNetCore, SceneVerse, token_collide
 import torch
 from torch.utils.data.dataloader import DataLoader
 from models.modules import VAEModule
@@ -90,8 +90,8 @@ if __name__ == '__main__':
     else:
         raise ValueError(args.dataset)
 
-    train_loader = DataLoader(train_dset, batch_size=args.train_batch_size, num_workers=args.worker, persistent_workers=True)
-    val_loader = DataLoader(val_dset, batch_size=args.val_batch_size, num_workers=args.worker, persistent_workers=True)
+    train_loader = DataLoader(train_dset, batch_size=args.train_batch_size, num_workers=args.worker, persistent_workers=True, collate_fn=token_collide)
+    val_loader = DataLoader(val_dset, batch_size=args.val_batch_size, num_workers=args.worker, persistent_workers=True, collate_fn=token_collide)
 
     model = VAEModule(args)
 
