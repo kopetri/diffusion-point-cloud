@@ -2,17 +2,16 @@ from torch.nn import Module
 from models.encoders import PointNetEncoder
 from models.diffusion import DiffusionPoint, PointwiseNet, VarianceSchedule
 from models.common import reparameterize_gaussian, standard_normal_logprob, gaussian_entropy, truncated_normal_
+from models import CLIP_TEXT_DIM
 
 class GaussianVAE(Module):
 
     def __init__(self, args):
         super().__init__()
         self.args = args
-        if args.use_text_condition:
-            self.text_encoder = 
         self.encoder = PointNetEncoder(args.latent_dim)
         self.diffusion = DiffusionPoint(
-            net = PointwiseNet(point_dim=args.latent_dim, context_dim=args.latent_dim, residual=args.residual),
+            net = PointwiseNet(point_dim=args.latent_dim, context_dim=args.latent_dim, residual=args.residual, text_dim=CLIP_TEXT_DIM[args.clip_version]),
             var_sched = VarianceSchedule(
                 num_steps=args.num_steps,
                 beta_1=args.beta_1,

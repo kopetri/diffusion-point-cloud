@@ -75,7 +75,7 @@ class AutoEncoderModule(LightningModule):
     
 class VAEModule(LightningModule):
     def __init__(self, opt=None, **kwargs) -> None:
-        super().__init__(opt=opt, **kwargs)
+        super().__init__(opt=opt, **kwargs)        
         if self.opt.model == 'gaussian':
             self.model = GaussianVAE(self.opt)
         elif self.opt.model == 'flow':
@@ -84,7 +84,7 @@ class VAEModule(LightningModule):
             raise ValueError(self.opt.model)
         self.sample_step = 0
         if self.opt.use_text_condition:
-            self.text_encoder, _, _ = open_clip.create_model_and_transforms("ViT-H-14", pretrained="laion2b_s32b_b79k")
+            self.text_encoder, _, _ = open_clip.create_model_and_transforms(self.opt.clip_version, pretrained=self.opt.clip_pretrained)
             for param in self.text_encoder.parameters():
                 param.requires_grad = False
         

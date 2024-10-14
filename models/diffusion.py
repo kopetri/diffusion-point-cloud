@@ -62,13 +62,13 @@ class PointNetEncoder(Module):
 
 
 class PointwiseNet(Module):
-    def __init__(self, point_dim, context_dim, residual, text_dim=None):
+    def __init__(self, point_dim, context_dim, residual, text_dim):
         """
         Args:
             point_dim: Dimensionality of each point (e.g., 3 for 3D points).
             context_dim: Dimensionality of the latent context (e.g., z or text embedding).
             residual: Whether to use residual connections.
-            text_dim: Optional, dimensionality of the text embedding for cross-attention.
+            text_dim: Dimensionality of the text embedding for cross-attention.
         """
         super().__init__()
         self.encoder = PointNetEncoder(latent_dim=point_dim)
@@ -90,8 +90,7 @@ class PointwiseNet(Module):
         self.self_attention = MultiheadAttention(embed_dim=point_dim, num_heads=4, batch_first=True)
 
         # Cross-attention layer between point cloud and text (if text_dim > 0)
-        if self.text_dim > 0:
-            self.cross_attention = MultiheadAttention(embed_dim=point_dim, num_heads=4, batch_first=True)
+        self.cross_attention = MultiheadAttention(embed_dim=point_dim, num_heads=4, batch_first=True)
 
     def forward(self, x, beta, context, text_embeddings=None):
         """

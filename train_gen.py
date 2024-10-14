@@ -42,13 +42,18 @@ if __name__ == '__main__':
     trainer.add_argument('--sched_start_epoch', type=int, default=200)
     trainer.add_argument('--sched_end_epoch', type=int, default=400)
 
+
+    # CLIP parameters
+    trainer.add_argument('--clip_version', type=str, default="ViT-H-14")
+    trainer.add_argument('--clip_pretrained', type=str, default="laion2b_s32b_b79k")    
+
     args = trainer.setup(train=True, check_val_every_n_epoch=50, gradient_clip_val=10, gradient_clip_algorithm="norm")
 
     torch.set_float32_matmul_precision('high')
 
     # text tokenization
     if args.use_text_condition:
-        tokenizer = open_clip.get_tokenizer("laion2b_s32b_b79k")
+        tokenizer = open_clip.get_tokenizer(args.clip_pretrained)
     else:
         tokenizer = None
 
