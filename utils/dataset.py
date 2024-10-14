@@ -301,6 +301,7 @@ class SceneVerse(Dataset):
             
         pointcloud = pointcloud[indices]
         caption = caption[caption_idx]
+        caption = caption.decode('utf-8')
         
         assert pointcloud.shape == (self.num_points, 3)
         data["pointcloud"] = pointcloud
@@ -313,18 +314,19 @@ class SceneVerse(Dataset):
         return data
 
 if __name__ == "__main__":
-    make_hdf5_files("data/sceneverse")
-    """
-    dataset = SceneVerse("data/sceneverse", "train", "shape_unit")
+    import open_clip
+    #make_hdf5_files("data/sceneverse")
+    
+    tokenizer = open_clip.get_tokenizer("ViT-H-14")
+    dataset = SceneVerse("data/sceneverse", "train", "shape_unit", tokenizer=tokenizer)
     for dp in dataset:
         print(dp)
         break
-    dataset = SceneVerse("data/sceneverse", "valid", "shape_unit")
+    dataset = SceneVerse("data/sceneverse", "valid", "shape_unit", tokenizer=tokenizer)
     for dp in dataset:
         print(dp)
         break
-    dataset = SceneVerse("data/sceneverse", "test", "shape_unit")
+    dataset = SceneVerse("data/sceneverse", "test", "shape_unit", tokenizer=tokenizer)
     for dp in dataset:
         print(dp)
         break
-    """

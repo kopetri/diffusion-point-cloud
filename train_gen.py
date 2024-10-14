@@ -53,7 +53,7 @@ if __name__ == '__main__':
 
     # text tokenization
     if args.use_text_condition:
-        tokenizer = open_clip.get_tokenizer(args.clip_pretrained)
+        tokenizer = open_clip.get_tokenizer(args.clip_version)
     else:
         tokenizer = None
 
