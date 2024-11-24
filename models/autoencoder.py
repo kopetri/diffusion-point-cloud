@@ -1,6 +1,6 @@
 from torch.nn import Module
 from models.encoders import PointNetEncoder
-from models.diffusion import DiffusionPoint, PointwiseNet, VarianceSchedule
+from models.diffusion import DiffusionPoint, VarianceSchedule
 
 
 class AutoEncoder(Module):

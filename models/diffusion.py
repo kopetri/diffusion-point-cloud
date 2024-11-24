@@ -1,8 +1,22 @@
 import torch
 import torch.nn.functional as F
-from torch.nn import Module, ModuleList, MultiheadAttention
+from torch.nn import Module, ModuleList, MultiheadAttention, Conv1d, Dropout, BatchNorm1d, Sequential, Linear
 import numpy as np
-from models.common import ConcatSquashLinear
+from models.common import ConcatSquashLinear, AttentionBlock
+from models.pointnet2_utils import PointNetFeaturePropagation, PointNetSetAbstractionMsg
+from tqdm.auto import tqdm
+
+class TimeEmbedding(Module):
+    def __init__(self, n_embd):
+        super().__init__()
+        self.linear_1 = Linear(n_embd, 4 * n_embd)
+        self.linear_2 = Linear(4 * n_embd, 4 * n_embd)
+
+    def forward(self, x):
+        x = self.linear_1(x)
+        x = F.silu(x)
+        x = self.linear_2(x)
+        return x
 
 class VarianceSchedule(Module):
 
@@ -45,127 +59,115 @@ class VarianceSchedule(Module):
         assert 0 <= flexibility and flexibility <= 1
         sigmas = self.sigmas_flex[t] * flexibility + self.sigmas_inflex[t] * (1 - flexibility)
         return sigmas
+    
+    def get_time_embedding(self, timestep, dtype):
+        freqs = torch.pow(10000, -torch.arange(start=0, end=160, dtype=dtype) / 160)
+        x = torch.tensor([timestep], dtype=dtype)[:, None] * freqs[None]
+        return torch.cat([torch.cos(x), torch.sin(x)], dim=-1)
 
-class PointNetEncoder(Module):
-    def __init__(self, latent_dim):
-        super().__init__()
-        self.mlp = torch.nn.Sequential(
-            torch.nn.Conv1d(3, 64, 1),   # From (B, 3, N) -> (B, 64, N)
-            torch.nn.Conv1d(64, 128, 1),  # From (B, 64, N) -> (B, 128, N)
-            torch.nn.Conv1d(128, latent_dim, 1),  # Final embedding layer (B, 128, N) -> (B, latent_dim, N)
-        )
-
-    def forward(self, x):
-        x = x.transpose(1, 2)  # (B, N, 3) -> (B, 3, N)
-        embedding = self.mlp(x)  # (B, latent_dim, N)
-        return embedding.transpose(1, 2)  # Return (B, N, latent_dim)
-
-
-class PointwiseNet(Module):
-    def __init__(self, point_dim, context_dim, residual, text_dim):
-        """
-        Args:
-            point_dim: Dimensionality of each point (e.g., 3 for 3D points).
-            context_dim: Dimensionality of the latent context (e.g., z or text embedding).
-            residual: Whether to use residual connections.
-            text_dim: Dimensionality of the text embedding for cross-attention.
-        """
-        super().__init__()
-        self.act = F.leaky_relu
-        self.residual = residual
-        self.text_dim = text_dim if text_dim is not None else 0
-
-        # Pointwise fully connected layers
-        self.layers = ModuleList([
-            ConcatSquashLinear(point_dim, 128, context_dim + 3),
-            ConcatSquashLinear(128, 256, context_dim + 3),
-            ConcatSquashLinear(256, 512, context_dim + 3),
-            ConcatSquashLinear(512, 256, context_dim + 3),
-            ConcatSquashLinear(256, 128, context_dim + 3),
-            ConcatSquashLinear(128, 3, context_dim + 3)
+        
+class SwitchSequential(Sequential):
+    def forward(self, point_pos0, point_pos1, point_feat0, point_feat1, context, time):
+        for layer in self:
+            if isinstance(layer, AttentionBlock):
+                point_feat0 = layer(point_feat0, context)
+            elif isinstance(layer, PointNetSetAbstractionMsg):
+                point_pos0, point_feat0 = layer(point_pos0, point_feat0, time)
+            elif isinstance(layer, PointNetFeaturePropagation):
+                point_feat0 = layer(point_pos0, point_pos1, point_feat0, point_feat1, time)
+                point_pos0 = None
+            else:
+                raise NotImplementedError("unknown layer.", type(layer))
+        return point_pos0, point_feat0
+        
+        
+class PointCloudUNet(Module):
+    def __init__(self, point_dim=9, num_heads=4, time_dim=320, context_dim=768):
+        super(PointCloudUNet, self).__init__()
+        self.encoders = ModuleList([
+            SwitchSequential(PointNetSetAbstractionMsg(1024, [0.05, 0.1], [16, 32], point_dim, [[16, 16, 32], [32, 32, 64]], time_dim), AttentionBlock(num_heads, 96, context_dim)),
+            SwitchSequential(PointNetSetAbstractionMsg(512, [0.1, 0.2], [16, 32], 32+64, [[64, 64, 128], [64, 96, 128]], time_dim), AttentionBlock(num_heads, 256, context_dim)),
+            SwitchSequential(PointNetSetAbstractionMsg(256, [0.2, 0.4], [16, 32], 128+128, [[128, 196, 256], [128, 196, 256]], time_dim), AttentionBlock(num_heads, 512, context_dim)),
+            SwitchSequential(PointNetSetAbstractionMsg(64, [0.4, 0.8], [16, 32], 256+256, [[256, 256, 512], [256, 384, 512]], time_dim), AttentionBlock(num_heads, 1024, context_dim)),
         ])
-
-        # Self-attention layer for point cloud
-        self.self_attention = MultiheadAttention(embed_dim=point_dim, num_heads=4, batch_first=True)
-
-        # Cross-attention layer between point cloud and text (if text_dim > 0)
-        self.cross_attention = MultiheadAttention(embed_dim=point_dim, num_heads=4, batch_first=True)
-
-    def forward(self, x, x_0, beta, context, text_embeddings=None):
-        """
-        Args:
-            x:         Point clouds at some timestep t, (B, N, 3).
-            x_0:       Point clouds emb at some timestep t, (B, N, d).
-            beta:      Time embedding (B, ).
-            context:   Latent context, e.g., shape latents (B, F).
-            text_embeddings: Optional, text embeddings for cross-attention (B, text_len, text_dim).
-        """
-        batch_size = x.size(0)
-        beta = beta.view(batch_size, 1, 1)          # (B, 1, 1)
-        context = context.view(batch_size, 1, -1)   # (B, 1, F)
-
-        time_emb = torch.cat([beta, torch.sin(beta), torch.cos(beta)], dim=-1)  # (B, 1, 3)
-        ctx_emb = torch.cat([time_emb, context], dim=-1)  # (B, 1, F+3)
-
-        point_embeddings = x_0 #self.encoder(x)
-
-        # Self-attention on point cloud embeddings
-        point_embeddings, _ = self.self_attention(point_embeddings, point_embeddings, point_embeddings)  # Apply self-attention to the point cloud
-
-        # If text_embeddings is provided, apply cross-attention
-        if text_embeddings is not None:
-            text_embeddings = text_embeddings.transpose(0, 1)  # (text_len, B, text_dim) -> (B, text_len, text_dim)
-            point_embeddings, _ = self.cross_attention(point_embeddings, text_embeddings, text_embeddings)  # Cross-attention with text
-
-        # Pass through pointwise layers with context
-        out = point_embeddings
-        for i, layer in enumerate(self.layers):
-            out = layer(ctx=ctx_emb, x=out)
-            if i < len(self.layers) - 1:
-                out = self.act(out)
-
-        if self.residual:
-            return x + out
-        else:
-            return out
+        
+        self.decoders = ModuleList([
+            SwitchSequential(PointNetFeaturePropagation(512+512+256+256, [256, 256], time_dim), AttentionBlock(num_heads, 256, context_dim)),
+            SwitchSequential(PointNetFeaturePropagation(128+128+256, [256, 256], time_dim), AttentionBlock(num_heads, 256, context_dim)),
+            SwitchSequential(PointNetFeaturePropagation(32+64+256, [256, 128], time_dim), AttentionBlock(num_heads, 128, context_dim)),
+            SwitchSequential(PointNetFeaturePropagation(point_dim+128, [128, 128, 128], time_dim), AttentionBlock(num_heads, 128, context_dim)),
+        ])
+              
+        
+        self.conv1 = Conv1d(128, 128, 1)
+        self.bn1 = BatchNorm1d(128)
+        self.drop1 = Dropout(0.5)
+        self.conv2 = Conv1d(128, point_dim, 1)
+        
+    def forward(self, x, context, time):
+        xyzs, points = [x[:,:3,:]], [x]
+        for i, layers in enumerate(self.encoders):
+            xyz, point = layers(xyzs[i], None, points[i], None, context, time)
+            xyzs.append(xyz)
+            points.append(point)
+        
+        xyz = xyzs.pop()
+        point = points.pop()
+        
+        for i, layers in enumerate(self.decoders):
+            xyz_before = xyzs.pop()
+            point_before = points.pop()
+                                    
+            _, point = layers(xyz_before, xyz, point_before, point, context, time)
+            xyz = xyz_before
+        
+        x = self.drop1(F.relu(self.bn1(self.conv1(point))))
+        x = self.conv2(x)
+        return x
+        
+        
+        
 
 
 class DiffusionPoint(Module):
 
-    def __init__(self, net, var_sched: VarianceSchedule):
+    def __init__(self, net, time_emb, var_sched: VarianceSchedule):
         super().__init__()
         self.net = net
         self.var_sched = var_sched
+        self.time_embedding = TimeEmbedding(time_emb)
 
-    def get_loss(self, x, x_0, context, t=None, text_embeddings=None):
+    def get_loss(self, x, context, t=None):
         """
         Args:
-            x: Input point cloud, (B, N, 3).
-            x_0:  Input point cloud, (B, N, d).
-            context:  Shape latent, (B, F).
-            text_embeddings: Optional text embeddings (B, text_len, text_dim).
+            x: Input point cloud, (B, C, N).
+            context: text embeddings (B, text_len, text_dim).
         """
-        batch_size, _, point_dim = x_0.size()
+        batch_size, point_dim, _ = x.size()
         if t == None:
             t = self.var_sched.uniform_sample_t(batch_size)
+            time_embedding = torch.cat([self.var_sched.get_time_embedding(t_, x.dtype) for t_ in t], dim=0).to(x)
+            time_embedding = self.time_embedding(time_embedding)
         alpha_bar = self.var_sched.alpha_bars[t]
         beta = self.var_sched.betas[t]
 
         c0 = torch.sqrt(alpha_bar).view(-1, 1, 1)       # (B, 1, 1)
         c1 = torch.sqrt(1 - alpha_bar).view(-1, 1, 1)   # (B, 1, 1)
 
-        e_rand = torch.randn_like(x_0)  # (B, N, d)
-        e_theta = self.net(x, c0 * x_0 + c1 * e_rand, beta=beta, context=context, text_embeddings=text_embeddings)
+        e_rand = torch.randn_like(x)  # (B, C, N)
+        e_theta = self.net(c0 * x + c1 * e_rand, context=context, time=time_embedding)
 
         loss = F.mse_loss(e_theta.view(-1, point_dim), e_rand.view(-1, point_dim), reduction='mean')
         return loss
 
-    def sample(self, num_points, context, point_dim=3, flexibility=0.0, ret_traj=False, text_embeddings=None):
+    def sample(self, num_points, context, point_dim=3, flexibility=0.0, ret_traj=False):
         batch_size = context.size(0)
-        x_T = torch.randn([batch_size, num_points, point_dim]).to(context.device)
+        x_T = torch.randn([batch_size, point_dim, num_points]).to(context.device)
         traj = {self.var_sched.num_steps: x_T}
-        for t in range(self.var_sched.num_steps, 0, -1):
+        for t in tqdm(range(self.var_sched.num_steps, 0, -1), desc="Denoising..."):
             z = torch.randn_like(x_T) if t > 1 else torch.zeros_like(x_T)
+            time_emb = self.var_sched.get_time_embedding(t, x_T.dtype).to(x_T)
+            time_emb = self.time_embedding(time_emb)
             alpha = self.var_sched.alphas[t]
             alpha_bar = self.var_sched.alpha_bars[t]
             sigma = self.var_sched.get_sigmas(t, flexibility)
@@ -175,7 +177,7 @@ class DiffusionPoint(Module):
 
             x_t = traj[t]
             beta = self.var_sched.betas[[t] * batch_size]
-            e_theta = self.net(x_t, beta=beta, context=context, text_embeddings=text_embeddings)
+            e_theta = self.net(x_t, context=context, time=time_emb)
             x_next = c0 * (x_t - c1 * e_theta) + sigma * z
             traj[t - 1] = x_next.detach()  # Stop gradient and save trajectory.
             traj[t] = traj[t].cpu()  # Move previous output to CPU memory.
@@ -186,3 +188,24 @@ class DiffusionPoint(Module):
             return traj
         else:
             return traj[0]
+
+
+if __name__ == "__main__":
+    time_emb = 320
+    B = 4
+    N = 2048
+    C = 3
+    
+    
+    unet = PointCloudUNet(C).cuda()
+    
+    diffusion = DiffusionPoint(unet,)
+        
+    xyz = torch.randn((B, C, N)).cuda()
+    time_emb = torch.randn((B, time_emb)).cuda()
+    
+    text_features = torch.randn((B, 77, 768)).cuda()
+        
+    y = unet(xyz, text_features, time_emb)
+    
+    print(y.shape)

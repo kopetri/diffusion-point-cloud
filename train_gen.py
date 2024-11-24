@@ -10,8 +10,9 @@ if __name__ == '__main__':
     # Arguments
     trainer = Trainer("Point Diffusion")
     # Model arguments
-    trainer.add_argument('--model', type=str, default='flow', choices=['flow', 'gaussian'])
-    trainer.add_argument('--latent_dim', type=int, default=1024)
+    trainer.add_argument('--model', type=str, default='gaussian', choices=['flow', 'gaussian'])
+    trainer.add_argument('--point_dim', type=int, default=3)
+    trainer.add_argument('--num_heads', type=int, default=4)
     trainer.add_argument('--num_steps', type=int, default=100)
     trainer.add_argument('--beta_1', type=float, default=1e-4)
     trainer.add_argument('--beta_T', type=float, default=0.02)
@@ -25,11 +26,10 @@ if __name__ == '__main__':
     trainer.add_argument('--kl_weight', type=float, default=0.001)
     trainer.add_argument('--residual', type=eval, default=True, choices=[True, False])
     trainer.add_argument('--spectral_norm', type=eval, default=False, choices=[True, False])
-    trainer.add_argument('--use_text_condition', action="store_true")
 
     # Datasets and loaders
-    trainer.add_argument('--dataset_path', type=str, default='./data/shapenet.hdf5')
-    trainer.add_argument('--dataset_name', type=str, default='shapenet', choices=['shapenet', 'sceneverse'])
+    trainer.add_argument('--dataset_path', type=str, default='./data/sceneverse')
+    trainer.add_argument('--dataset_name', type=str, default='sceneverse', choices=['shapenet', 'sceneverse'])
     trainer.add_argument('--categories', type=list, default=['all'])
     trainer.add_argument('--scale_mode', type=str, default='shape_unit')
     trainer.add_argument('--train_batch_size', type=int, default=128)
@@ -52,10 +52,7 @@ if __name__ == '__main__':
     torch.set_float32_matmul_precision('high')
 
     # text tokenization
-    if args.use_text_condition:
-        tokenizer = open_clip.get_tokenizer(args.clip_version)
-    else:
-        tokenizer = None
+    tokenizer = open_clip.get_tokenizer(args.clip_version)
 
     # Datasets and loaders
     

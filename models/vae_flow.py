@@ -2,7 +2,7 @@ import torch
 from torch.nn import Module
 
 from models.encoders import PointNetEncoder
-from models.diffusion import DiffusionPoint, PointwiseNet, VarianceSchedule
+from models.diffusion import DiffusionPoint, VarianceSchedule
 from models.common import reparameterize_gaussian, gaussian_entropy, standard_normal_logprob, truncated_normal_
 from models.flow import build_latent_flow
 

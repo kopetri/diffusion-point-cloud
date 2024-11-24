@@ -2,7 +2,6 @@ import torch
 from pytorch_utils.module import LightningModule
 from models.common import get_linear_scheduler
 from models.flow import spectral_norm_power_iteration
-from models.autoencoder import AutoEncoder
 from models.vae_gaussian import GaussianVAE
 from models.vae_flow import FlowVAE
 import open_clip
@@ -83,10 +82,9 @@ class VAEModule(LightningModule):
         else:
             raise ValueError(self.opt.model)
         self.sample_step = 0
-        if self.opt.use_text_condition:
-            self.text_encoder, _, _ = open_clip.create_model_and_transforms(self.opt.clip_version, pretrained=self.opt.clip_pretrained)
-            for param in self.text_encoder.parameters():
-                param.requires_grad = False
+        self.text_encoder, _, _ = open_clip.create_model_and_transforms(self.opt.clip_version, pretrained=self.opt.clip_pretrained)
+        for param in self.text_encoder.parameters():
+            param.requires_grad = False
 
     def get_text_hidden_states(self, text_tokens):
         """
@@ -118,18 +116,16 @@ class VAEModule(LightningModule):
 
         return last_hidden_states
         
-    def predict_step(self, batch, batch_idx, num_samples=None):
+    def predict_step(self, batch, batch_idx, captions, num_samples=None):
         ref = batch['pointcloud']
-        if self.opt.use_text_condition:
-            text_emb = self.text_encoder.encode_text(batch['caption']).unsqueeze(1)
-            # normalize embeddings?
-            # text_embeddings /= text_embeddings.norm(dim=-1, keepdim=True)
-            # use last hidden states?
-            # text_emb = self.get_text_hidden_states(batch['caption'])
-        else:
-            text_emb = None
         if num_samples is None:
-            num_samples = ref.shape[0]
+            num_samples = min(ref.shape[0], 4)
+        text_emb = self.text_encoder.encode_text(captions).unsqueeze(1)
+        # normalize embeddings?
+        # text_embeddings /= text_embeddings.norm(dim=-1, keepdim=True)
+        # use last hidden states?
+        # text_emb = self.get_text_hidden_states(batch['caption'])
+        
         z = torch.randn([num_samples, self.opt.latent_dim]).to(ref)
         x = self.model.sample(z, self.opt.sample_num_points, flexibility=self.opt.flexibility, text_embeddings=text_emb)
         
@@ -138,7 +134,8 @@ class VAEModule(LightningModule):
     def validation_step(self, batch, batch_idx):
         num_samples = 4
         if batch_idx == 0:
-            _, sample_pcd = self.predict_step(batch, batch_idx, num_samples=num_samples)
+            captions = batch['caption'][0:num_samples]
+            _, sample_pcd = self.predict_step(batch, batch_idx, num_samples=num_samples, captions=captions)
             sample_pcd = sample_pcd.cpu().numpy()
             for i, pcd in enumerate(sample_pcd):
                 self.logger.experiment.log({f"sample_{i}": wandb.Object3D(pcd)})
@@ -148,16 +145,13 @@ class VAEModule(LightningModule):
         spectral_norm_power_iteration(self.model, n_power_iterations=1)
         x = batch['pointcloud']
         B = x.shape[0]
-        if self.opt.use_text_condition:
-            text_tokens = batch['caption']
-            text_embeddings = self.text_encoder.encode_text(text_tokens).unsqueeze(1)
-            # normalize embeddings?
-            # text_embeddings /= text_embeddings.norm(dim=-1, keepdim=True)
-            # use last hidden states?
-            # text_emb = self.get_text_hidden_states(batch['caption'])
-        else:
-            text_embeddings = None
-        loss = self.model.get_loss(x, kl_weight=self.opt.kl_weight, text_embeddings=text_embeddings)
+        text_tokens = batch['caption']
+        text_embeddings = self.text_encoder.encode_text(text_tokens).unsqueeze(1)
+        # normalize embeddings?
+        # text_embeddings /= text_embeddings.norm(dim=-1, keepdim=True)
+        # use last hidden states?
+        # text_emb = self.get_text_hidden_states(batch['caption'])
+        loss = self.model.get_loss(x, text_embeddings=text_embeddings)
         self.log_value('loss', loss, split, B)
         return loss
     
