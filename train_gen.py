@@ -10,7 +10,7 @@ if __name__ == '__main__':
     # Arguments
     trainer = Trainer("Point Diffusion")
     # Model arguments
-    trainer.add_argument('--model', type=str, default='flow', choices=['flow', 'gaussian'])
+    trainer.add_argument('--model', type=str, default='gaussian', choices=['flow', 'gaussian'])
     trainer.add_argument('--latent_dim', type=int, default=1024)
     trainer.add_argument('--num_steps', type=int, default=100)
     trainer.add_argument('--beta_1', type=float, default=1e-4)
@@ -28,8 +28,8 @@ if __name__ == '__main__':
     trainer.add_argument('--use_text_condition', action="store_true")
 
     # Datasets and loaders
-    trainer.add_argument('--dataset_path', type=str, default='./data/shapenet.hdf5')
-    trainer.add_argument('--dataset_name', type=str, default='shapenet', choices=['shapenet', 'sceneverse'])
+    trainer.add_argument('--dataset_path', type=str, default='./data/sceneverse.hdf5')
+    trainer.add_argument('--dataset_name', type=str, default='sceneverse', choices=['shapenet', 'sceneverse'])
     trainer.add_argument('--categories', type=list, default=['all'])
     trainer.add_argument('--scale_mode', type=str, default='shape_unit')
     trainer.add_argument('--train_batch_size', type=int, default=128)
@@ -75,7 +75,7 @@ if __name__ == '__main__':
     elif args.dataset_name == 'sceneverse':
         train_dset = SceneVerse(
             path=args.dataset_path,
-            split='train',
+            split='valid',
             scale_mode=args.scale_mode,
             num_points=args.sample_num_points,
             tokenizer=tokenizer

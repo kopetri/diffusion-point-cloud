@@ -82,7 +82,6 @@ class VAEModule(LightningModule):
             self.model = FlowVAE(self.opt)
         else:
             raise ValueError(self.opt.model)
-        self.sample_step = 0
         if self.opt.use_text_condition:
             self.text_encoder, _, _ = open_clip.create_model_and_transforms(self.opt.clip_version, pretrained=self.opt.clip_pretrained)
             for param in self.text_encoder.parameters():
