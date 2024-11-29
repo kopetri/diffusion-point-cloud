@@ -28,7 +28,7 @@ if __name__ == '__main__':
     trainer.add_argument('--use_text_condition', action="store_true")
 
     # Datasets and loaders
-    trainer.add_argument('--dataset_path', type=str, default='./data/sceneverse.hdf5')
+    trainer.add_argument('--dataset_path', type=str, default='./data/sceneverse')
     trainer.add_argument('--dataset_name', type=str, default='sceneverse', choices=['shapenet', 'sceneverse'])
     trainer.add_argument('--categories', type=list, default=['all'])
     trainer.add_argument('--scale_mode', type=str, default='shape_unit')
@@ -50,6 +50,9 @@ if __name__ == '__main__':
     args = trainer.setup(train=True, check_val_every_n_epoch=50, gradient_clip_val=10, gradient_clip_algorithm="norm")
 
     torch.set_float32_matmul_precision('high')
+    
+    if torch.cuda.is_available():
+        print(torch.cuda.get_device_name())
 
     # text tokenization
     if args.use_text_condition:
@@ -75,7 +78,7 @@ if __name__ == '__main__':
     elif args.dataset_name == 'sceneverse':
         train_dset = SceneVerse(
             path=args.dataset_path,
-            split='valid',
+            split='train',
             scale_mode=args.scale_mode,
             num_points=args.sample_num_points,
             tokenizer=tokenizer
@@ -97,5 +100,5 @@ if __name__ == '__main__':
 
     if args.spectral_norm:
         add_spectral_norm(model.model)
-
+    
     trainer.fit(model, train_dataloaders=train_loader, val_dataloaders=val_loader)

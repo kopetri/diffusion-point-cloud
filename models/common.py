@@ -1,5 +1,5 @@
 import torch
-from torch.nn import Module, Linear, MultiheadAttention, GroupNorm, LayerNorm, Conv1d
+from torch.nn import Module, Linear, MultiheadAttention, GroupNorm, LayerNorm, Conv1d, Sequential
 from torch.optim.lr_scheduler import LambdaLR
 import numpy as np
 import torch.nn.functional as F
@@ -73,15 +73,14 @@ class CrossAttention(Module):
         self.cross_attention = MultiheadAttention(embed_dim, num_heads)
 
     def forward(self, point_features, text_features):
-        #rint(point_features.shape, text_features.shape)
-        # Transpose point_features to match MultiheadAttention input shape
-        #project points to context_dim 
-        point_features = point_features.permute(0, 2, 1)
-
-        point_features = point_features.permute(2, 0, 1)  # [seq_len, batch, context_dim]
+        # text_features  [B, N, F]
+        # point_features [B, F, M]
+        if point_features.shape[1] == text_features.shape[2]:
+            point_features.permute(0, 2, 1)
+        assert point_features.shape[2] == text_features.shape[2]
+        
+        point_features = point_features.permute(1, 0, 2)  # [seq_len, batch, context_dim]
         text_features = text_features.permute(1, 0, 2)    # [seq_len, batch, context_dim]
-        
-        
         
         # Use text_features as key and value for conditioning on text
         attended_features, _ = self.cross_attention(query=point_features, key=text_features, value=text_features)
@@ -124,11 +123,15 @@ class AttentionBlock(Module):
         self.conv_output = Conv1d(channels, channels, kernel_size=1, padding=0)
     
     def forward(self, point_features, text_features):
+        # point_features [B, seq, point_dim]
+        point_features = point_features.permute(0, 2, 1)
+         # point_features [B, point_dim, seq]
         residue_long = point_features
-        # point_features [B, point_dim, seq2]
+       
         if self.project_points:
             text_features = self.proj(text_features.permute(0, 2, 1)).permute(0, 2, 1)
         # text_feat [B, seq, text_dim]
+        # point_feat [B, point_dim, seq]
         x = self.groupnorm(point_features)
         x = self.conv_input(x)
     
@@ -153,19 +156,32 @@ class AttentionBlock(Module):
 
         x = x.transpose(-1, -2)  # (n, c, hw)
         x = self.conv_output(x)
-        
-        return x + residue_long
+
+        x = x + residue_long
+        return x.permute(0, 2, 1)
+    
+class SwitchSequential(Sequential):
+    def forward(self, x, ctx, text_embeddings=None):
+        for layer in self:
+            if isinstance(layer, AttentionBlock):
+                if not text_embeddings is None:
+                    x = layer(point_features=x, text_features=text_embeddings)
+            elif isinstance(layer, ConcatSquashLinear):
+                x = layer(ctx=ctx, x=x)
+            else:
+                raise NotImplementedError("unknown layer.", type(layer))
+        return x
     
 if __name__ == '__main__':
-    B = 4
+    B = 1
     N = 1024
     n_heads = 4
-    point_dim = 96
+    point_dim = 128
     n_emb = 768
     
     attn = AttentionBlock(n_heads, point_dim, n_emb).cuda()
     
-    point_emb = torch.randn((B, point_dim, N)).cuda()
+    point_emb = torch.randn((B, N, point_dim)).cuda()
     text_emb = torch.randn((B, 77, n_emb)).cuda()
     
     print(point_emb.shape, text_emb.shape)

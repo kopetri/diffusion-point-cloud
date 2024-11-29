@@ -3,7 +3,7 @@ import torch.nn.functional as F
 from torch.nn import Module, ModuleList
 import numpy as np
 
-from models.common import ConcatSquashLinear
+from models.common import ConcatSquashLinear, SwitchSequential, AttentionBlock
 
 
 class VarianceSchedule(Module):
@@ -51,17 +51,17 @@ class VarianceSchedule(Module):
 
 class PointwiseNet(Module):
 
-    def __init__(self, point_dim, context_dim, residual, text_dim):
+    def __init__(self, context_dim, residual, text_dim=1024):
         super().__init__()
         self.act = F.leaky_relu
         self.residual = residual
         self.layers = ModuleList([
-            ConcatSquashLinear(3, 128, context_dim+3),
-            ConcatSquashLinear(128, 256, context_dim+3),
-            ConcatSquashLinear(256, 512, context_dim+3),
-            ConcatSquashLinear(512, 256, context_dim+3),
-            ConcatSquashLinear(256, 128, context_dim+3),
-            ConcatSquashLinear(128, 3, context_dim+3)
+            SwitchSequential(ConcatSquashLinear(3, 128, context_dim+3),   AttentionBlock(4, 128, text_dim)),
+            SwitchSequential(ConcatSquashLinear(128, 256, context_dim+3), AttentionBlock(4, 256, text_dim)),
+            SwitchSequential(ConcatSquashLinear(256, 512, context_dim+3), AttentionBlock(4, 512, text_dim)),
+            SwitchSequential(ConcatSquashLinear(512, 256, context_dim+3), AttentionBlock(4, 256, text_dim)),
+            SwitchSequential(ConcatSquashLinear(256, 128, context_dim+3), AttentionBlock(4, 128, text_dim)),
+            SwitchSequential(ConcatSquashLinear(128, 3, context_dim+3))
         ])
 
     def forward(self, x, beta, context, text_embeddings=None):
@@ -81,7 +81,7 @@ class PointwiseNet(Module):
 
         out = x
         for i, layer in enumerate(self.layers):
-            out = layer(ctx=ctx_emb, x=out)
+            out = layer(ctx=ctx_emb, x=out, text_embeddings=text_embeddings)
             if i < len(self.layers) - 1:
                 out = self.act(out)
 
@@ -135,7 +135,7 @@ class DiffusionPoint(Module):
 
             x_t = traj[t]
             beta = self.var_sched.betas[[t]*batch_size]
-            e_theta = self.net(x_t, beta=beta, context=context)
+            e_theta = self.net(x_t, beta=beta, context=context, text_embeddings=text_embeddings)
             x_next = c0 * (x_t - c1 * e_theta) + sigma * z
             traj[t-1] = x_next.detach()     # Stop gradient and save trajectory.
             traj[t] = traj[t].cpu()         # Move previous output to CPU memory.

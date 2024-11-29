@@ -12,7 +12,7 @@ class GaussianVAE(Module):
         emb_dim = CLIP_TEXT_DIM[args.clip_version]
         self.encoder = PointNetEncoder(args.latent_dim)
         self.diffusion = DiffusionPoint(
-            net = PointwiseNet(point_dim=args.latent_dim, residual=args.residual, context_dim=args.latent_dim, text_dim=emb_dim),
+            net = PointwiseNet(residual=args.residual, context_dim=args.latent_dim, text_dim=emb_dim),
             var_sched = VarianceSchedule(
                 num_steps=args.num_steps,
                 beta_1=args.beta_1,

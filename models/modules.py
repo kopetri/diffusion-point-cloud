@@ -117,7 +117,7 @@ class VAEModule(LightningModule):
 
         return last_hidden_states
         
-    def predict_step(self, batch, batch_idx, num_samples=None):
+    def predict_step(self, batch, batch_idx):
         ref = batch['pointcloud']
         if self.opt.use_text_condition:
             text_emb = self.text_encoder.encode_text(batch['caption']).unsqueeze(1)
@@ -127,17 +127,15 @@ class VAEModule(LightningModule):
             # text_emb = self.get_text_hidden_states(batch['caption'])
         else:
             text_emb = None
-        if num_samples is None:
-            num_samples = ref.shape[0]
+        num_samples = ref.shape[0]
         z = torch.randn([num_samples, self.opt.latent_dim]).to(ref)
         x = self.model.sample(z, self.opt.sample_num_points, flexibility=self.opt.flexibility, text_embeddings=text_emb)
         
         return ref, x
     
     def validation_step(self, batch, batch_idx):
-        num_samples = 4
         if batch_idx == 0:
-            _, sample_pcd = self.predict_step(batch, batch_idx, num_samples=num_samples)
+            _, sample_pcd = self.predict_step(batch, batch_idx)
             sample_pcd = sample_pcd.cpu().numpy()
             for i, pcd in enumerate(sample_pcd):
                 self.logger.experiment.log({f"sample_{i}": wandb.Object3D(pcd)})
