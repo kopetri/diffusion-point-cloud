@@ -93,7 +93,7 @@ if __name__ == '__main__':
     else:
         raise ValueError(args.dataset)
 
-    train_loader = DataLoader(train_dset, batch_size=args.train_batch_size, num_workers=args.worker, persistent_workers=True)
+    train_loader = DataLoader(train_dset, batch_size=args.train_batch_size, num_workers=args.worker, persistent_workers=True, drop_last=True)
     val_loader = DataLoader(val_dset, batch_size=args.val_batch_size, num_workers=args.worker, persistent_workers=True)
 
     model = VAEModule(args)
